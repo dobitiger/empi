@@ -162,6 +162,28 @@ struct Configuration {
     static double optimization_target;
 
     /**
+     * Whether linear chirp rate should be fitted (as an additional parameter of local optimization) for oscillating atoms.
+     */
+    static bool chirp_enabled;
+
+    /**
+     * Maximum absolute value of the chirp rate, in cycles per sample squared.
+     */
+    static double chirp_max;
+
+    /**
+     * Maximum absolute value of the dimensionless chirp parameter β = chirp rate × scale².
+     */
+    static double chirp_beta_max;
+
+    /**
+     * Analogue of the energy error (ε²) for the chirp rate, defining the distance between layers of chirped atoms
+     * in the dictionary. Value of 1 results in a dictionary consisting of non-chirped atoms only.
+     * Zero means that the value should be the same as energy_error.
+     */
+    double chirp_energy_error = 0.0;
+
+    /**
      * Path for the output decomposition file.
      */
     std::string output_file_path;

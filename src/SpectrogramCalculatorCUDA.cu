@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <stdexcept>
 #include <utility>
 #include "Array.h"
 #include "Corrector.h"
@@ -455,6 +456,9 @@ public:
 
     void compute(const SpectrogramRequest &request) {
         cuda_check(cudaSetDevice(device));
+        if (request.envelope_sin) {
+            throw std::logic_error("chirped atoms are not supported by CUDA calculator");
+        }
         const index_t total_input_length = request.envelope_length + (request.how_many - 1) * request.input_shift;
         IndexRange overlap = IndexRange(-request.input_offset, request.channel_length - request.input_offset).overlap(total_input_length);
         if (!overlap) {

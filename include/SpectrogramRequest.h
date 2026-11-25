@@ -45,10 +45,24 @@ struct SpectrogramRequest : public ProtoRequest {
     const real *envelope;
 
     /**
+     * if not null, this is a request for a block of chirped atoms:
+     * "envelope" is the actual envelope multiplied by cosine of the chirp phase π·chirp·t²,
+     * and this is the same envelope multiplied by sine of the chirp phase (at least envelope_length items).
+     * Spectra S_cos and S_sin of the signal multiplied by both envelopes should be combined
+     * as S_cos − i·S_sin (atoms with positive chirp rate) and S_cos + i·S_sin (atoms with negative chirp rate)
+     */
+    const real *envelope_sin = nullptr;
+
+    /**
      * objects capable of transforming FFT output into normalized energy values (at least output_bins items)
      * (in case of CUDA calculator, each channel MUST point to page-locked host memory)
      */
     const Corrector *correctors;
+
+    /**
+     * same as correctors, but for the atoms with negative chirp rate (used only if envelope_sin is given)
+     */
+    const Corrector *correctors_minus = nullptr;
 
     /**
      * extractor implementation to reduce each spectrum to a single value
@@ -60,6 +74,11 @@ struct SpectrogramRequest : public ProtoRequest {
      * (in case of CUDA calculator, this MUST point to page-locked host memory)
      */
     ExtractedMaximum *maxima;
+
+    /**
+     * same as maxima, but for the atoms with negative chirp rate (used only if envelope_sin is given)
+     */
+    ExtractedMaximum *maxima_minus = nullptr;
 
     /**
      * listener to be notified after the request is complete
@@ -83,6 +102,7 @@ struct SpectrogramRequest : public ProtoRequest {
         assert(correctors);
         assert(extractor);
         assert(maxima);
+        assert(!envelope_sin || (correctors_minus && maxima_minus));
     }
 };
 

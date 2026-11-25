@@ -11,6 +11,12 @@ struct BlockStructure {
 	int envelope_length;
 	int transform_size;
 	double input_shift;
+
+	// absolute value of chirp rate (in cycles per sample squared), the block consists of atoms with both signs of chirp rate
+	double chirp = 0.0;
+
+	// index of the layer of chirped atoms (see ChirpGeometry), 0 for ordinary non-chirped atoms
+	int chirp_layer = 0;
 };
 
 #endif //EMPI_BLOCK_STRUCTURE_H

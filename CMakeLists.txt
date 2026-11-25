@@ -121,6 +121,10 @@ target_link_libraries(test-block empi-fake-gpu)
 
 target_link_libraries(test-block-atom empi-fake-gpu)
 
+target_link_libraries(test-chirp empi-fake-gpu)
+
+target_link_libraries(test-chirp-dictionary empi-fake-gpu fftw3)
+
 if(WITH_CUDA)
     add_executable(test-cuda tests/special/test-cuda.cpp)
     target_link_libraries(test-cuda empi-cpu empi-gpu cufft_static culibos)

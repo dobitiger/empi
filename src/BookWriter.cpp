@@ -3,6 +3,7 @@
  *   Enhanced Matching Pursuit Implementation (empi)      *
  * See README.md and LICENCE for details.                 *
  **********************************************************/
+#include <cmath>
 #include <cstdio>
 #include <memory>
 #include <stdexcept>
@@ -86,6 +87,9 @@ void JsonBookWriter::write(Array2D<double> data, EpochIndex epoch, const std::ve
             }
 
             fprintf(file.get(), "\"amplitude\": %.8lg,\n", atom.amplitude);
+            if (!std::isnan(atom.chirp)) {
+                fprintf(file.get(), "\"chirp_Hz_s\": %.8lg,\n", atom.chirp * freq_sampling * freq_sampling);
+            }
             fprintf(file.get(), "\"energy\": %.8lg,\n", atom.energy / freq_sampling);
             fprintf(file.get(), "\"envelope\": \"%s\",\n", atom.envelope.c_str());
             fprintf(file.get(), "\"f_Hz\": %.8lg,\n", atom.frequency * freq_sampling);
@@ -121,7 +125,7 @@ SQLiteBookWriter::SQLiteBookWriter(double freq_sampling, index_t epoch_sample_co
 
     create_tables();
 
-    stmt_insert_atom = prepare("INSERT INTO atoms VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    stmt_insert_atom = prepare("INSERT INTO atoms VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     stmt_insert_metadata = prepare("INSERT INTO metadata VALUES (?, ?)");
     stmt_insert_samples = prepare("INSERT INTO samples VALUES (?, ?, ?)");
     stmt_insert_segment = prepare("INSERT INTO segments VALUES (?, ?, ?, ?)");
@@ -158,7 +162,8 @@ void SQLiteBookWriter::write(Array2D<double> data, EpochIndex epoch, const std::
                         atom.phase,
                         atom.scale / freq_sampling,
                         atom.position / freq_sampling,
-                        (segment_offset + atom.position) / freq_sampling
+                        (segment_offset + atom.position) / freq_sampling,
+                        atom.chirp * freq_sampling * freq_sampling
             );
         }
         const double *channel = data[c];
@@ -215,6 +220,7 @@ void SQLiteBookWriter::create_tables() {
             "scale_s REAL,"
             "t0_s REAL,"
             "t0_abs_s REAL,"
+            "chirp_Hz_s REAL,"
             "PRIMARY KEY (segment_id, channel_id, iteration)"
             ");"
             "CREATE TABLE segments ("
@@ -233,7 +239,7 @@ void SQLiteBookWriter::create_tables() {
 }
 
 void SQLiteBookWriter::insert_atom(int segment_id, int channel_id, int iteration, double amplitude, double energy,
-                                   const char *envelope, double f, double phase, double scale, double t0, double t0_abs) {
+                                   const char *envelope, double f, double phase, double scale, double t0, double t0_abs, double chirp) {
     if (sqlite3_reset(stmt_insert_atom.get()) != SQLITE_OK
         || sqlite3_bind_int(stmt_insert_atom.get(), 1, segment_id) != SQLITE_OK
         || sqlite3_bind_int(stmt_insert_atom.get(), 2, channel_id) != SQLITE_OK
@@ -246,6 +252,7 @@ void SQLiteBookWriter::insert_atom(int segment_id, int channel_id, int iteration
         || sqlite3_bind_double(stmt_insert_atom.get(), 9, scale) != SQLITE_OK
         || sqlite3_bind_double(stmt_insert_atom.get(), 10, t0) != SQLITE_OK
         || sqlite3_bind_double(stmt_insert_atom.get(), 11, t0_abs) != SQLITE_OK
+        || sqlite3_bind_double(stmt_insert_atom.get(), 12, chirp) != SQLITE_OK
         || sqlite3_step(stmt_insert_atom.get()) != SQLITE_DONE
             ) {
         throw std::runtime_error("cannot insert atoms into SQLite file");

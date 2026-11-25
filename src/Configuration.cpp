@@ -3,6 +3,7 @@
  *   Enhanced Matching Pursuit Implementation (empi)      *
  * See README.md and LICENCE for details.                 *
  **********************************************************/
+#include <cmath>
 #include <functional>
 #include <sstream>
 #include <thread>
@@ -43,6 +44,12 @@ int Configuration::optimization_max_iterations = 10000;
 
 double Configuration::optimization_target = 1.0e-5;
 
+bool Configuration::chirp_enabled = false;
+
+double Configuration::chirp_max = INFINITY;
+
+double Configuration::chirp_beta_max = INFINITY;
+
 Configuration::Configuration() : cpu_threads(std::thread::hardware_concurrency()) {}
 
 bool Configuration::parse(int argc, char **argv, int &error_code) {
@@ -79,6 +86,14 @@ bool Configuration::parse(int argc, char **argv, int &error_code) {
             ->check(check_positive_int)->capture_default_str();
     app.add_option("--cpu-workers", cpu_workers, "Number of independent CPU workers to run")
             ->check(check_positive_int)->capture_default_str();
+    double chirp_max_hz_s = 0.0;
+    app.add_flag("--chirp", chirp_enabled, "Fit linear chirp rate of oscillating atoms (chirplet matching pursuit)");
+    app.add_option("--chirp-beta-max", chirp_beta_max, "Maximum absolute value of dimensionless chirp parameter: chirp rate × scale² (default: no limit), implies --chirp")
+            ->check(check_positive_number);
+    app.add_option("--chirp-energy-error", chirp_energy_error, "Epsilon-squared parameter for chirp rate, corresponding to the number of chirped atoms in the dictionary, 1 = none (default: same as --energy-error)")
+            ->check(CLI::Range(1.0e-6, 1.0));
+    app.add_option("--chirp-max", chirp_max_hz_s, "Maximum absolute chirp rate in hertz per second (default: no limit), implies --chirp")
+            ->check(check_positive_number);
     app.add_flag("--delta", include_delta_atoms, "Include delta-type atoms");
     app.add_option("--dictionary-output", dictionary_output, "Path to create a dictionary structure XML file (default: none)");
 #ifdef _GNU_SOURCE
@@ -181,6 +196,23 @@ bool Configuration::parse(int argc, char **argv, int &error_code) {
             optimization_mode = OPTIMIZATION_GLOBAL;
         } else {
             throw CLI::ConversionError("invalid value for -o switch");
+        }
+
+        if (std::isfinite(chirp_beta_max)) {
+            chirp_enabled = true;
+        }
+        if (chirp_max_hz_s > 0) {
+            chirp_enabled = true;
+            chirp_max = chirp_max_hz_s / (freq_sampling * freq_sampling);
+        }
+        if (chirp_energy_error == 0.0) {
+            chirp_energy_error = energy_error;
+        }
+        if (chirp_enabled && chirp_energy_error >= 1 && optimization_mode == OPTIMIZATION_DISABLED) {
+            throw CLI::ValidationError("--chirp", "without chirped atoms in the dictionary (--chirp-energy-error 1), chirp rate can be fitted only by local parameter optimization, so -o none cannot be used");
+        }
+        if (chirp_enabled && chirp_energy_error < 1 && !gpu_devices.empty()) {
+            throw CLI::ValidationError("--chirp", "chirped atoms in the dictionary are not supported on GPU yet; use --chirp-energy-error 1 or do not use --gpu-id");
         }
 
         if (envelopes.empty() && !include_delta_atoms) {

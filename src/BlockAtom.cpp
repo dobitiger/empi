@@ -21,9 +21,9 @@ std::atomic<size_t> BlockAtom::total_optimization_count;
 
 BlockAtom::BlockAtom(Array2D<double> data, double energy, double energy_upper_bound, std::shared_ptr<Family> family_,
                      double frequency, double position, double scale,
-                     Extractor extractor, std::shared_ptr<BlockAtomParamsConverter> converter_)
+                     Extractor extractor, std::shared_ptr<BlockAtomParamsConverter> converter_, double chirp)
         : BasicAtom(std::move(data), energy), energy_upper_bound(energy_upper_bound),
-          extractor(extractor), family(std::move(family_)), converter(std::move(converter_)), params(frequency, position, scale) {}
+          extractor(extractor), family(std::move(family_)), converter(std::move(converter_)), params(frequency, position, scale, chirp) {}
 
 void BlockAtom::connect_cache(std::shared_ptr<BlockAtomCache> cache, size_t key) {
     this->cache_slot = BlockAtomCacheSlot(std::move(cache), key);
@@ -32,7 +32,7 @@ void BlockAtom::connect_cache(std::shared_ptr<BlockAtomCache> cache, size_t key)
 ExtendedAtomPointer BlockAtom::extend(bool allow_optimization) {
     BlockAtomObjective objective(family, data, extractor, converter);
 
-    std::array<double, 3> array = converter->arrayFromParams(params);
+    BlockAtomParamsArray array = converter->arrayFromParams(params);
     if (allow_optimization) {
         if (cache_slot) {
             auto result = cache_slot->get();
@@ -41,20 +41,59 @@ ExtendedAtomPointer BlockAtom::extend(bool allow_optimization) {
             }
         }
 
-        std::array<double, 3> step{0.5, 0.5, 0.5};
-        auto result = nelder_mead<double, 3>(
-                objective,
-                array,
-                Configuration::optimization_target,
-                step,
-                1,
-                Configuration::optimization_max_iterations
-        );
-        if (result.ifault) {
-            ++failed_optimization_count;
+        if (Configuration::chirp_enabled) {
+            // Chirp rate is an additional, fourth parameter of the local optimization.
+            // Apart from the non-chirped atom from the dictionary, the optimization is also started
+            // from the fast estimate of the locally optimal chirp atom (Gribonval 2001), if available,
+            // as strongly chirped structures may be out of reach when starting from zero chirp rate.
+            std::vector<BlockAtomParamsArray> starts{array};
+            if (auto estimate = objective.estimate_chirp(params)) {
+                // conversion back and forth forces the estimate into the allowed range of parameters
+                starts.push_back(converter->arrayFromParams(
+                        converter->paramsFromArray(converter->arrayFromParams(*estimate)).first
+                ));
+            }
+            const std::array<double, 4> step{0.5, 0.5, 0.5, 0.5};
+            double best_value = INFINITY;
+            for (const auto &start : starts) {
+                auto result = nelder_mead<double, 4>(
+                        [&objective](const std::array<double, 4> &x) {
+                            return objective(x);
+                        },
+                        start,
+                        Configuration::optimization_target,
+                        step,
+                        1,
+                        Configuration::optimization_max_iterations
+                );
+                if (result.ifault) {
+                    ++failed_optimization_count;
+                }
+                ++total_optimization_count;
+                const double value = objective(result.xmin);
+                if (value < best_value) {
+                    best_value = value;
+                    array = result.xmin;
+                }
+            }
+        } else {
+            std::array<double, 3> step{0.5, 0.5, 0.5};
+            auto result = nelder_mead<double, 3>(
+                    [&objective](const std::array<double, 3> &x) {
+                        return objective(BlockAtomParamsArray{x[0], x[1], x[2], 0.0});
+                    },
+                    {array[0], array[1], array[2]},
+                    Configuration::optimization_target,
+                    step,
+                    1,
+                    Configuration::optimization_max_iterations
+            );
+            if (result.ifault) {
+                ++failed_optimization_count;
+            }
+            ++total_optimization_count;
+            array = {result.xmin[0], result.xmin[1], result.xmin[2], 0.0};
         }
-        ++total_optimization_count;
-        array = result.xmin;
     }
 
     double norm;
@@ -71,7 +110,7 @@ ExtendedAtomPointer BlockAtom::extend(bool allow_optimization) {
     auto result = std::make_shared<BlockExtendedAtom>(
             data, fit_energy, family,
             fit.frequency, fit.position, fit.scale,
-            std::move(extra_data)
+            std::move(extra_data), fit.chirp
     );
     if (allow_optimization && cache_slot) {
         IndexRange range = family->compute_range(result->params.position, result->params.scale);
@@ -92,8 +131,8 @@ ExtendedAtomPointer BlockAtom::extend(bool allow_optimization) {
 
 BlockExtendedAtom::BlockExtendedAtom(Array2D<double> data, double energy, std::shared_ptr<Family> family, double frequency, double position,
                                      double scale,
-                                     Array1D<ExtraData> extra)
-        : ExtendedAtom(std::move(data), energy), family(std::move(family)), params(frequency, position, scale), extra(std::move(extra)) {}
+                                     Array1D<ExtraData> extra, double chirp)
+        : ExtendedAtom(std::move(data), energy), family(std::move(family)), params(frequency, position, scale, chirp), extra(std::move(extra)) {}
 
 void BlockExtendedAtom::export_atom(std::list<ExportedAtom> *atoms) {
     for (index_t c = 0; c < extra.length(); ++c) {
@@ -105,6 +144,9 @@ void BlockExtendedAtom::export_atom(std::list<ExportedAtom> *atoms) {
         atom.scale = params.scale;
         atom.phase = e.phase;
         atom.position = params.position;
+        if (Configuration::chirp_enabled) {
+            atom.chirp = params.chirp;
+        }
         atoms[c].push_back(std::move(atom));
     }
 }
@@ -126,11 +168,13 @@ IndexRange BlockExtendedAtom::subtract_from_signal() const {
 
     const int channel_count = data.height();
     const double omega = 2 * M_PI * params.frequency;
+    const double half_chirp = M_PI * params.chirp;
     for (int c = 0; c < channel_count; ++c) {
         const double channel_amplitude_factor = extra[c].amplitude * common_amplitude_factor;
         for (index_t i = first_valid_sample_offset; i < end_valid_sample_offset; ++i) {
+            const double t = static_cast<double>(i) - params.position;
             data[c][i] -= channel_amplitude_factor * samples[i - first_sample_offset] *
-                           std::cos(omega * (static_cast<double>(i) - params.position) + extra[c].phase);
+                           std::cos((omega + half_chirp * t) * t + extra[c].phase);
         }
     }
 

@@ -14,23 +14,35 @@ void SpectrogramCalculatorDummy::compute(const SpectrogramRequest &request) {
     request.assertCorrectness();
 
     Array2D<complex> tmp_spectra(request.channel_count, request.output_bins);
+    Array2D<complex> tmp_spectra_minus(request.channel_count, request.output_bins);
     index_t input_offset = request.input_offset;
     for (int m = 0; m < request.how_many; ++m) {
         for (int c = 0; c < request.channel_count; ++c) {
             for (int k = 0; k < request.output_bins; ++k) {
-                complex sum = 0.0;
+                complex sum = 0.0, sum_minus = 0.0;
                 for (int n = 0; n < request.envelope_length; ++n) {
                     index_t index = input_offset + n;
                     if (index >= 0 && index < request.channel_length) {
-                        sum += request.data[c][index] * request.envelope[n] *
-                               std::polar(1.0, -2 * M_PI * k * n / request.window_length);
+                        const complex oscillation = std::polar(1.0, -2 * M_PI * k * n / request.window_length);
+                        if (request.envelope_sin) {
+                            const complex envelope(request.envelope[n], request.envelope_sin[n]);
+                            sum += request.data[c][index] * std::conj(envelope) * oscillation;
+                            sum_minus += request.data[c][index] * envelope * oscillation;
+                        } else {
+                            sum += request.data[c][index] * request.envelope[n] * oscillation;
+                        }
                     }
                 }
                 tmp_spectra[c][k] = sum;
+                tmp_spectra_minus[c][k] = sum_minus;
             }
         }
         input_offset += request.input_shift;
         request.maxima[m] = request.extractor(request.channel_count, request.output_bins, tmp_spectra.get(),
                                               request.correctors, tmp_for_extractor.data(), nullptr);
+        if (request.envelope_sin) {
+            request.maxima_minus[m] = request.extractor(request.channel_count, request.output_bins, tmp_spectra_minus.get(),
+                                                        request.correctors_minus, tmp_for_extractor.data(), nullptr);
+        }
     }
 }

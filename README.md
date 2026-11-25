@@ -141,6 +141,10 @@ Options:
   --channels TEXT             Range of channels to process, e.g. 1-3,5,8-9 (default: all)
   --cpu-threads UINT=6        Number of CPU threads for each worker
   --cpu-workers UINT=1        Number of independent CPU workers to run
+  --chirp                     Fit linear chirp rate of oscillating atoms (chirplet matching pursuit)
+  --chirp-beta-max FLOAT      Maximum absolute value of dimensionless chirp parameter: chirp rate × scale² (default: no limit), implies --chirp
+  --chirp-energy-error FLOAT  Epsilon-squared parameter for chirp rate, corresponding to the number of chirped atoms in the dictionary, 1 = none (default: same as --energy-error)
+  --chirp-max FLOAT           Maximum absolute chirp rate in hertz per second (default: no limit), implies --chirp
   --delta                     Include delta-type atoms
   --full-atoms-in-signal      Prohibit atoms from exceeding the time range of the signal
   --energy-error FLOAT=0.05   Epsilon-squared parameter corresponding to the dictionary size
@@ -224,6 +228,32 @@ a sensible tradeoff between precision and performance for real-world usages, as 
 Specifying `-o none` results in using only a discrete dictionary which structure will be specified by
 the `--energy-error` flag as described below. In this case, one should also request an `--energy-error` value
 smaller than the default of 0.05 (e.g. 0.01).
+
+* `--chirp` enables _chirplet matching pursuit_: oscillating atoms are allowed to have
+a linearly changing frequency, f(t) = f + c·(t−t₀), where the chirp rate c (in Hz/s) is an additional, fourth parameter
+of each atom. Fitted chirp rates are written to the output as `chirp_Hz_s`.
+The dictionary is extended with “layers” of chirped atoms with constant values of the dimensionless
+chirp parameter β = c × scale² (for Gaussian envelopes, the layers are equally spaced with respect to the natural
+metric of the dictionary, in which the product of two atoms depends only on the hyperbolic distance between
+their shapes), and the estimates of maximum possible energy used by `-o global` are adjusted accordingly.
+In each iteration, the local optimization is started both from the dictionary atom and from a fast estimate of the locally
+optimal chirp rate and scale ([Gribonval 2001](https://doi.org/10.1109/78.917803)).
+Chirp rates are always restricted so that the instantaneous frequency stays between zero and the maximum frequency
+within the entire atom. **The size of the dictionary (and the computation time) is roughly proportional to the largest
+allowed value of β, so it is strongly recommended to use `--chirp-beta-max` and/or `--chirp-max`
+(and `--gabor-scale-max`, if applicable).** Dictionaries with chirped atoms are not yet supported on GPU.
+
+* `--chirp-beta-max` restricts the absolute value of the dimensionless chirp parameter β = c × scale²,
+which describes how strongly the atom is “tilted” on the time-frequency plane: the bandwidth of the atom
+is √(1+β²) times larger than that of the non-chirped atom of the same scale. It implies `--chirp`.
+
+* `--chirp-max` restricts the absolute value of the chirp rate (in hertz per second). It implies `--chirp`.
+
+* `--chirp-energy-error` is an analogue of `--energy-error` for the chirp rate, specifying the distance between
+layers of chirped atoms in the dictionary (default: the same value as `--energy-error`, which is usually the fastest).
+Larger values result in fewer chirped atoms in the dictionary, which have to be compensated by more
+local optimizations in `-o global` mode. With the value of 1, the dictionary consists of non-chirped atoms only
+and chirp rate is fitted only by the local optimization (this is the only variant supported on GPU, and it cannot be used with `-o none`).
 
 * `--delta` enables the use of delta atoms in the dictionary.
 

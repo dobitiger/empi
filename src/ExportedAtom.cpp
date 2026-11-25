@@ -9,4 +9,4 @@
 //////////////////////////////////////////////////////////////////////////////
 
 ExportedAtom::ExportedAtom(double energy)
-        : amplitude(NAN), energy(energy), frequency(NAN), phase(NAN), scale(NAN), position(NAN) {}
+        : amplitude(NAN), energy(energy), frequency(NAN), phase(NAN), scale(NAN), position(NAN), chirp(NAN) {}

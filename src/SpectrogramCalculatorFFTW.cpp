@@ -20,7 +20,8 @@ static void mul(size_t count, TX *__restrict x, const TY *__restrict y) noexcept
 SpectrogramCalculatorFFTW::SpectrogramCalculatorFFTW(int channel_count, const std::set<int> &window_lengths)
         : max_window_length(*window_lengths.rbegin()),
           input_buffers(channel_count, max_window_length, fftw_alloc_real, fftw_free),
-          output_buffers(channel_count, max_window_length / 2 + 1, fftw_alloc_complex, fftw_free) {
+          output_buffers(channel_count, max_window_length / 2 + 1, fftw_alloc_complex, fftw_free),
+          output_buffers_sin(channel_count, max_window_length / 2 + 1, fftw_alloc_complex, fftw_free) {
     for (int window_length : window_lengths) {
         fftw_plan plan = fftw_plan_dft_r2c_1d(
                 window_length,
@@ -36,6 +37,7 @@ SpectrogramCalculatorFFTW::SpectrogramCalculatorFFTW(const SpectrogramCalculator
         : max_window_length(source.max_window_length),
           input_buffers(source.input_buffers.height(), source.input_buffers.length(), fftw_alloc_real, fftw_free),
           output_buffers(source.output_buffers.height(), source.output_buffers.length(), fftw_alloc_complex, fftw_free),
+          output_buffers_sin(source.output_buffers.height(), source.output_buffers.length(), fftw_alloc_complex, fftw_free),
           plans(source.plans) {}
 
 void SpectrogramCalculatorFFTW::compute(const SpectrogramRequest &request) {
@@ -53,27 +55,48 @@ void SpectrogramCalculatorFFTW::compute(const SpectrogramRequest &request) {
         if (!overlap) {
             // all samples consist of zero-padding
             request.maxima[h] = ExtractedMaximum{0, 0};
+            if (request.envelope_sin) {
+                request.maxima_minus[h] = ExtractedMaximum{0, 0};
+            }
             continue;
         }
 
+        // windowed transform of each channel; for chirped atoms, two transforms (with quadrature envelopes) are needed
+        const int transform_count = request.envelope_sin ? 2 : 1;
         for (int c = 0; c < request.channel_count; ++c) {
             real *const input_buffer = input_buffers[c];
             const real *input = request.data[c] + offset;
-
-            if (overlap.first_index > 0) {
-                std::fill(input_buffer, input_buffer + overlap.first_index, 0);
+            for (int transform = 0; transform < transform_count; ++transform) {
+                if (overlap.first_index > 0) {
+                    std::fill(input_buffer, input_buffer + overlap.first_index, 0);
+                }
+                std::copy(input + overlap.first_index, input + overlap.end_index, input_buffer + overlap.first_index);
+                if (overlap.end_index < static_cast<index_t>(request.window_length)) {
+                    std::fill(input_buffer + overlap.end_index, input_buffer + request.window_length, 0);
+                }
+                mul(request.envelope_length, input_buffer, transform ? request.envelope_sin : request.envelope);
+                fftw_execute_dft_r2c(plan, input_buffer, transform ? output_buffers_sin[c] : output_buffers[c]);
             }
-            std::copy(input + overlap.first_index, input + overlap.end_index, input_buffer + overlap.first_index);
-            if (overlap.end_index < static_cast<index_t>(request.window_length)) {
-                std::fill(input_buffer + overlap.end_index, input_buffer + request.window_length, 0);
+            if (request.envelope_sin) {
+                // S_cos − i·S_sin for atoms with positive chirp rate, S_cos + i·S_sin for the negative one
+                complex *const output_cos = reinterpret_cast<complex *>(output_buffers[c]);
+                complex *const output_sin = reinterpret_cast<complex *>(output_buffers_sin[c]);
+                for (int k = 0; k < request.output_bins; ++k) {
+                    const complex value_cos = output_cos[k];
+                    const complex i_value_sin = complex(-output_sin[k].imag(), output_sin[k].real());
+                    output_cos[k] = value_cos - i_value_sin;
+                    output_sin[k] = value_cos + i_value_sin;
+                }
             }
-
-            mul(request.envelope_length, input_buffer, request.envelope);
-            fftw_execute_dft_r2c(plan, input_buffer, output_buffers[c]);
         }
         request.maxima[h] = request.extractor(request.channel_count, request.output_bins,
                                               reinterpret_cast<complex *const *>(output_buffers.get()), request.correctors, input_buffers[0],
                                               nullptr);
+        if (request.envelope_sin) {
+            request.maxima_minus[h] = request.extractor(request.channel_count, request.output_bins,
+                                                        reinterpret_cast<complex *const *>(output_buffers_sin.get()), request.correctors_minus, input_buffers[0],
+                                                        nullptr);
+        }
     }
 }
 

@@ -34,6 +34,9 @@ public:
     /** atom's central position in samples */
     double position;
 
+    /** atom's linear chirp rate in cycles per sample squared (NaN if chirp rate is not being fitted) */
+    double chirp;
+
     /**
      * Create a new ExportedAtom with a given energy.
      * All other fields will be initialized to NAN.

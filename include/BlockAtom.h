@@ -43,9 +43,10 @@ public:
      * @param position center position in samples
      * @param scale atom's scale (related to its duration) in samples
      * @param extra channel-specific data (amplitudes, phases and energies) for all channels of the analysed signal
+     * @param chirp linear chirp rate in cycles per sample squared
      */
     BlockExtendedAtom(Array2D<double> data, double energy, std::shared_ptr<Family> family, double frequency, double position, double scale,
-                      Array1D<ExtraData> extra);
+                      Array1D<ExtraData> extra, double chirp = 0.0);
 
     /**
      * Export all parameters of this atom to a uniform representation.
@@ -100,7 +101,7 @@ public:
      */
     BlockAtom(Array2D<double> data, double energy, double energy_upper_bound, std::shared_ptr<Family> family,
               double frequency, double position, double scale,
-              Extractor extractor, std::shared_ptr<BlockAtomParamsConverter> converter);
+              Extractor extractor, std::shared_ptr<BlockAtomParamsConverter> converter, double chirp = 0.0);
 
     void connect_cache(std::shared_ptr<BlockAtomCache> cache, size_t key);
 

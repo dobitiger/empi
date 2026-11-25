@@ -33,11 +33,19 @@ class Block : public BlockInterface {
     PinnedArray1D<Corrector> correctors;
     std::shared_ptr<BlockAtomParamsConverter> converter;
 
+    // the fields below are used only for blocks of chirped atoms,
+    // which consist of atoms with both positive and negative chirp rate
+    double chirp;
+    PinnedArray1D<double> envelope_sin;
+    PinnedArray1D<Corrector> correctors_minus;
+    PinnedArray1D<ExtractedMaximum> maxima_minus;
+
     PinnedArray1D<ExtractedMaximum> maxima;
     Array1D<double> booster;
     SpectrogramRequest total_request;
 
     int best_index;
+    bool best_minus;
 
     std::shared_ptr<BlockAtomCache> extended_atom_cache;
 
@@ -55,10 +63,20 @@ public:
      * @param extractor function that will be used to extract information from multi-channel results,
      * according to a particular mode of multi-channel operation (constant vs variable phase)
      * @param allow_overstep whether we can assume that samples before and after the actual signal range are equal to zero
+     * @param chirp absolute value of chirp rate (in cycles per sample squared) of atoms in this block;
+     * if non-zero, "envelope" should be the envelope function multiplied by cosine of the chirp phase,
+     * and the block will consist of atoms with both positive and negative chirp rate
+     * @param envelope_sin envelope function multiplied by sine of the chirp phase (only if chirp is non-zero)
+     * @param correctors_minus correctors for atoms with negative chirp rate (only if chirp is non-zero)
+     * @param booster_multipliers optional additional multipliers (one for each output bin)
+     * for the upper bound of the energy of atoms obtained by local optimization
      */
     Block(PinnedArray2D<double> data, std::shared_ptr<Family> family, double scale, PinnedArray1D<double> envelope,
           PinnedArray1D<Corrector> correctors, std::shared_ptr<BlockAtomParamsConverter> converter, double booster,
-          int window_length, int input_shift, double envelope_center_offset, Extractor extractor, bool allow_overstep = true);
+          int window_length, int input_shift, double envelope_center_offset, Extractor extractor, bool allow_overstep = true,
+          double chirp = 0.0, PinnedArray1D<double> envelope_sin = PinnedArray1D<double>(),
+          PinnedArray1D<Corrector> correctors_minus = PinnedArray1D<Corrector>(),
+          Array1D<double> booster_multipliers = Array1D<double>());
 
     /**
      * Create a SpectrogramRequest that can be used to recompute the entire block.
@@ -98,7 +116,7 @@ public:
     [[nodiscard]] std::list<BlockAtom> get_candidate_matches(double energy_to_exceed) const;
 
 private:
-    [[nodiscard]] BlockAtom get_atom_from_index(int index) const;
+    [[nodiscard]] BlockAtom get_atom_from_index(int index, bool minus) const;
 };
 
 #endif //EMPI_BLOCK_H

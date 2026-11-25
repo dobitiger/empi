@@ -21,6 +21,7 @@ class SpectrogramCalculatorFFTW : public SpectrogramCalculator, public SpectrumC
     const int max_window_length;
     Array2D<real> input_buffers;
     Array2D<fftw_complex> output_buffers;
+    Array2D<fftw_complex> output_buffers_sin; // used only for chirped atoms
     std::map<int, std::shared_ptr<fftw_plan_s>> plans;
 
 public:

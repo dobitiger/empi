@@ -180,7 +180,9 @@ static int empi(const Configuration &configuration) {
             scale_max = std::min(scale_max, scale_max_in_signal);
         }
 
-        structures.emplace_back(e.family, energyError, scale_min, scale_max, e.freq_max);
+        structures.emplace_back(e.family, energyError, scale_min, scale_max, e.freq_max,
+                                Configuration::chirp_enabled, Configuration::chirp_max, configuration.chirp_energy_error,
+                                Configuration::chirp_beta_max);
     }
 
     FILE* dictionary_xml_handle = nullptr;
@@ -212,6 +214,10 @@ static int empi(const Configuration &configuration) {
                 lower_case_name = "gabor";
             }
             for (const auto &bs: structure.block_structures) {
+                if (bs.chirp != 0.0) {
+                    // blocks of chirped atoms cannot be represented in this format
+                    continue;
+                }
                 const double scale_ratio = bs.scale / (bs.envelope_length + 1);
                 const double opt = 0.5 * M_1_PI * scale_ratio * scale_ratio;
                 fprintf(dictionary_xml_handle, "<block uses=\"%s-WINDOW\">\n", upper_case_name.c_str());

@@ -114,7 +114,7 @@ protected:
     void create_tables();
 
     void insert_atom(int segment_id, int channel_id, int iteration, double amplitude, double energy,
-                     const char *envelope, double f, double phase, double scale, double t0, double t0_abs);
+                     const char *envelope, double f, double phase, double scale, double t0, double t0_abs, double chirp);
 
     template<typename B, typename V>
     void insert_metadata(const char *param, V value, B sqlite3_bind);
